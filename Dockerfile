@@ -50,7 +50,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends tini \
 
 COPY --from=prepare /licenses/ /licenses/
 COPY --from=prepare /opt/ /opt/
-COPY docker-entrypoint.sh healthcheck /usr/local/bin/
+COPY docker-entrypoint.sh healthcheck broker-state /usr/local/bin/
 
 # The release stays read-only. The entrypoint renders the effective config to
 # /tmp/activemq/conf; broker data (KahaDB) goes to /var/lib/activemq.

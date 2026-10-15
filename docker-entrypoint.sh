@@ -207,7 +207,18 @@ umask 022
 # "console" runs the broker in the foreground. The start script launches Java through
 # "sh -c", and that sh would die on SIGTERM without passing it on, so the JVM got killed
 # instead of shutting the broker down. Send stop signals to the JVM itself and wait for it.
-"$ACTIVEMQ_HOME/bin/activemq" console &
+# The log passes through a reader that records when the broker is a master/slave standby
+# (waiting for the store lock or the database lease), for the broker-state command.
+watch_log() {
+  local line
+  while IFS= read -r line; do
+    printf '%s\n' "$line"
+    case "$line" in
+      *"attempting to acquire exclusive lease"*|*"is now in slave mode"*) echo standby > "$RUNTIME/state" ;;
+    esac
+  done
+}
+"$ACTIVEMQ_HOME/bin/activemq" console > >(watch_log) 2>&1 &
 launcher=$!
 forward() {
   local java

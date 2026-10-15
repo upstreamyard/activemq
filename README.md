@@ -19,7 +19,7 @@ New ActiveMQ releases are built within 24 hours of appearing on Apache's downloa
 
 ## Why this ActiveMQ image
 
-Compared with the official `apache/activemq-classic` image. We tested its newest tag, `6.2.0`, on 2026-10-14.
+Compared with the official `apache/activemq-classic` image. We tested its newest tag, `6.2.0`, in October 2026.
 
 | | `apache/activemq-classic:6.2.0` | `upstreamyard/activemq` |
 |---|---|---|
@@ -40,7 +40,7 @@ Compared with the official `apache/activemq-classic` image. We tested its newest
 | | |
 |---|---|
 | Ports | `61616` OpenWire (JMS), `5672` AMQP, `61613` STOMP, `1883` MQTT, `61614` WebSocket, `8161` web console and Jolokia (JMX over HTTP), `9404` Prometheus metrics. Only OpenWire is on by default; see `ACTIVEMQ_TRANSPORTS` |
-| Probe | TCP on the first transport (61616 by default). A master/slave standby doesn't listen until it takes over |
+| Probes | `healthcheck`: TCP on the first transport (61616 by default). `broker-state`: prints `active`, `standby` or `starting`, and succeeds for active and standby. A master/slave standby doesn't listen until it takes over |
 | Requires | nothing for a single broker. JDBC high availability needs PostgreSQL (tested: PostgreSQL 18) |
 | Storage | `/var/lib/activemq` (KahaDB). Mount a volume there |
 | Config | environment variables (below); your own files in `/etc/activemq` replace the defaults |
@@ -164,7 +164,7 @@ Running the image yourself:
 
 1. Pass passwords from a Secret (`ACTIVEMQ_ADMIN_PASSWORD_FILE` or `env.valueFrom.secretKeyRef`).
 2. Use a StatefulSet with a volume at `/var/lib/activemq`, or `ACTIVEMQ_PERSISTENCE=jdbc` for HA without shared storage.
-3. Readiness: TCP on 61616. Liveness must **not** use the broker port, because a standby doesn't listen. Use a process check or a long `failureThreshold`.
+3. Probes: with a single broker, TCP on 61616. With master/slave, use `exec: [broker-state]` for startup, liveness and readiness: a standby never opens the broker port, so a TCP probe keeps it unready and blocks StatefulSet rolling updates. Clients then connect with a failover URL listing all brokers.
 4. Set a memory limit; the heap is 60% of it.
 5. Allow at least 30 seconds of `terminationGracePeriodSeconds`.
 
@@ -199,7 +199,7 @@ ADD --chmod=644 https://repo1.maven.org/maven2/com/mysql/mysql-connector-j/26.7.
 
 **Is there a Helm chart for ActiveMQ?** Yes: [`upstreamyard/activemq`](https://github.com/upstreamyard/helm-charts/tree/main/charts/activemq), for ActiveMQ Classic 5.19, 6.2 and 6.3, with HA and metrics.
 
-**What replaces the Bitnami ActiveMQ image and chart?** This image and our Helm chart. See [Migrating](#migrating-to-this-image).
+**What replaces the Bitnami ActiveMQ image?** This image, and our Helm chart for Kubernetes. See [Migrating](#migrating-to-this-image).
 
 **Why can't I reach the ActiveMQ web console in Docker?** ActiveMQ binds the console to `127.0.0.1` and only lets `127.0.0.1` in, so it's unreachable from outside a container. This image binds it to all interfaces and lets all addresses in; a login is still required.
 

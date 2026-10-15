@@ -98,13 +98,16 @@ for _ in $(seq 1 30); do
   docker logs smoke-b2 2>&1 | grep -q "attempting to acquire exclusive lease" && break; sleep 2
 done
 docker logs smoke-b2 2>&1 | grep -q "attempting to acquire exclusive lease" || fail "standby is not waiting for the lease"
-echo "smoke-b1 active, smoke-b2 waiting for the lease"
+[ "$(docker exec smoke-b1 broker-state)" = active ] || fail "broker-state of smoke-b1 is not active"
+[ "$(docker exec smoke-b2 broker-state)" = standby ] || fail "broker-state of smoke-b2 is not standby"
+echo "smoke-b1 active, smoke-b2 waiting for the lease (broker-state: active / standby)"
 
 URL="'failover:(tcp://smoke-b1:61616,tcp://smoke-b2:61616)'"
 expect_cli "Produced: 20 messages" producer --brokerUrl "$URL" --user app --password "$APP_PW" --destination queue://ha \
   --messageCount 20 --persistent true || fail "cannot send to the active broker"
 docker kill smoke-b1 >/dev/null
 wait_healthy smoke-b2
+[ "$(docker exec smoke-b2 broker-state)" = active ] || fail "broker-state of smoke-b2 is not active after takeover"
 expect_cli "Consumed: 20 messages" consumer --brokerUrl "$URL" --user app --password "$APP_PW" --destination queue://ha \
   --messageCount 20 || fail "messages lost after failover"
 echo "Failover ok: smoke-b2 took over, all 20 messages received"
