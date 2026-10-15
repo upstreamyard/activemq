@@ -1,0 +1,26 @@
+# Apache ActiveMQ Classic, single broker with KahaDB storage.
+# Start: docker compose up -d
+# Web console: http://localhost:8161/admin (admin / change-me)
+# Clients: tcp://localhost:61616 (OpenWire), localhost:5672 (AMQP), localhost:61613 (STOMP)
+# as user "app" with password "change-me-too".
+services:
+  activemq:
+    image: upstreamyard/activemq:6.3
+    restart: unless-stopped
+    environment:
+      ACTIVEMQ_ADMIN_PASSWORD: change-me
+      ACTIVEMQ_APP_USER: app
+      ACTIVEMQ_APP_PASSWORD: change-me-too
+      ACTIVEMQ_TRANSPORTS: openwire,amqp,stomp
+      ACTIVEMQ_METRICS_ENABLED: "true"
+    ports:
+      - "61616:61616"   # OpenWire (JMS)
+      - "5672:5672"     # AMQP
+      - "61613:61613"   # STOMP
+      - "8161:8161"     # web console, Jolokia
+      - "9404:9404"     # Prometheus metrics
+    volumes:
+      - activemq_data:/var/lib/activemq
+
+volumes:
+  activemq_data:

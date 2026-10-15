@@ -1,0 +1,51 @@
+# High availability without shared storage: two ActiveMQ brokers in JDBC master/slave
+# mode on one PostgreSQL database. One broker is active, the other waits for the database
+# lease and takes over within about 10-20 seconds when the active one stops.
+# Start: docker compose up -d
+# Clients connect with: failover:(tcp://localhost:61616,tcp://localhost:61626)
+x-broker: &broker
+  image: upstreamyard/activemq:6.3
+  restart: unless-stopped
+  environment: &broker-env
+    ACTIVEMQ_ADMIN_PASSWORD: change-me
+    ACTIVEMQ_APP_USER: app
+    ACTIVEMQ_APP_PASSWORD: change-me-too
+    ACTIVEMQ_PERSISTENCE: jdbc
+    ACTIVEMQ_JDBC_URL: jdbc:postgresql://postgres:5432/activemq
+    ACTIVEMQ_JDBC_USER: activemq
+    ACTIVEMQ_JDBC_PASSWORD: change-me-db
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: activemq
+      POSTGRES_USER: activemq
+      POSTGRES_PASSWORD: change-me-db
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "activemq", "-d", "activemq"]
+      interval: 5s
+      retries: 20
+
+  broker-1:
+    <<: *broker
+    hostname: broker-1   # must differ per broker: used as the lease holder ID
+    ports:
+      - "61616:61616"
+      - "8161:8161"
+
+  broker-2:
+    <<: *broker
+    hostname: broker-2
+    ports:
+      - "61626:61616"
+      - "8162:8161"
+
+volumes:
+  postgres_data:
