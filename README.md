@@ -1,3 +1,5 @@
+<img src="https://upstreamyard.github.io/helm-charts/logo.png" alt="upstreamyard logo" width="120" align="right">
+
 # ActiveMQ Docker image (Apache ActiveMQ Classic 5.19, 6.2, 6.3)
 
 Production-ready, multi-arch (`amd64`, `arm64`) and signed **Apache ActiveMQ Docker image** for every supported ActiveMQ Classic release line: **5.19** (`javax.jms`), **6.2** and **6.3** (`jakarta.jms`). It is **secure by default**: no anonymous clients, no `admin/admin`, and it runs as non-root. **High availability** works without shared storage (JDBC master/slave on PostgreSQL, driver included), and **Prometheus metrics** are built in. The web console works out of the box in Docker and Kubernetes. Use it with Docker, Docker Compose, or Kubernetes via our **[ActiveMQ Helm chart](https://github.com/upstreamyard/helm-charts/tree/main/charts/activemq)**. It is also a drop-in alternative to the discontinued Bitnami ActiveMQ image and to the outdated `apache/activemq-classic` image.
