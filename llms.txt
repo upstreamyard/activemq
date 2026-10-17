@@ -1,0 +1,30 @@
+# upstreamyard/activemq
+
+> ActiveMQ Docker image: multi-arch (amd64, arm64), cosign-signed container images of Apache ActiveMQ Classic for every supported release line (6.3, 6.2, 5.19), with a matching ActiveMQ Helm chart for Kubernetes. Secure by default (admin password required, no anonymous clients), non-root, Prometheus metrics built in, high availability via JDBC master/slave on PostgreSQL (driver included) or shared storage. A maintained alternative to the Bitnami ActiveMQ image and the outdated apache/activemq-classic image. Community-maintained by upstreamyard; not an official Apache image. Pull `upstreamyard/activemq:<version>` or `ghcr.io/upstreamyard/activemq:<version>`.
+
+Key facts: set `ACTIVEMQ_ADMIN_PASSWORD` (required) and optionally `ACTIVEMQ_APP_USER`/`ACTIVEMQ_APP_PASSWORD` for applications. OpenWire on 61616 is the only transport by default; `ACTIVEMQ_TRANSPORTS=openwire,amqp,stomp,mqtt,ws` enables more (5672, 61613, 1883, 61614). Web console and Jolokia on 8161, metrics on 9404 with `ACTIVEMQ_METRICS_ENABLED=true`. Data in `/var/lib/activemq`. Files mounted in `/etc/activemq` replace the defaults (e.g. your own `activemq.xml`). `ACTIVEMQ_PERSISTENCE=jdbc` plus `ACTIVEMQ_JDBC_URL/USER/PASSWORD` for HA without shared storage. Non-root UID 10001; read-only root filesystem works with a writable `/tmp`. Tags: `6.3`, `6.2`, `5.19` (javax.jms), `6`, `5`, `latest`.
+
+## Docs
+
+- [README](https://raw.githubusercontent.com/upstreamyard/activemq/main/README.md): quick start, all environment variables, users and permissions, high availability, metrics, Kubernetes, migration from Bitnami and the official image, FAQ
+- [AGENTS.md](https://raw.githubusercontent.com/upstreamyard/activemq/main/AGENTS.md): image facts table, deployment rules, repository conventions
+
+## Examples
+
+- [docker-compose.yml](https://raw.githubusercontent.com/upstreamyard/activemq/main/docker-compose.yml): single broker with OpenWire, AMQP, STOMP and metrics
+- [examples/jdbc-ha/docker-compose.yml](https://raw.githubusercontent.com/upstreamyard/activemq/main/examples/jdbc-ha/docker-compose.yml): two brokers in JDBC master/slave mode on PostgreSQL
+- [Helm chart](https://raw.githubusercontent.com/upstreamyard/helm-charts/main/charts/activemq/README.md): ActiveMQ on Kubernetes; `helm repo add upstreamyard https://upstreamyard.github.io/helm-charts`
+
+## Configuration reference
+
+- [Default activemq.xml](https://raw.githubusercontent.com/upstreamyard/activemq/main/conf/activemq.xml): template the container fills from environment variables
+- [Metrics rules](https://raw.githubusercontent.com/upstreamyard/activemq/main/conf/jmx-exporter.yml): Prometheus JMX exporter configuration
+- [ActiveMQ security](https://activemq.apache.org/components/classic/documentation/security): users, groups, authorization, LDAP
+- [ActiveMQ XML reference](https://activemq.apache.org/components/classic/documentation/xml-reference): all broker settings
+
+## Optional
+
+- [Build workflow](https://raw.githubusercontent.com/upstreamyard/activemq/main/.github/workflows/build.yml): how images are built, tested, signed and published
+- [Dockerfile](https://raw.githubusercontent.com/upstreamyard/activemq/main/Dockerfile)
+- [Entrypoint](https://raw.githubusercontent.com/upstreamyard/activemq/main/docker-entrypoint.sh)
+- [Smoke test](https://raw.githubusercontent.com/upstreamyard/activemq/main/scripts/smoke-test.sh)

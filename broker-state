@@ -1,0 +1,16 @@
+#!/bin/bash
+# Prints the broker's state and exits 0 when it is up:
+#   active    the broker accepts connections (port from the entrypoint, 61616 by default)
+#   standby   a master/slave standby waiting for the store lock or database lease
+#   starting  neither yet (exit 1)
+# Use it for Kubernetes probes with master/slave, where the TCP healthcheck would keep
+# the standby unready forever and block rolling updates.
+port=$(cat /tmp/activemq/healthcheck-port 2>/dev/null || echo 61616)
+if (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+  echo active
+elif [ "$(cat /tmp/activemq/state 2>/dev/null)" = standby ]; then
+  echo standby
+else
+  echo starting
+  exit 1
+fi

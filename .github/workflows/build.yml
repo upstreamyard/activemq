@@ -1,0 +1,218 @@
+name: Build & publish
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Daily: pick up new ActiveMQ releases automatically.
+    - cron: "41 4 * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "ActiveMQ version to build (e.g. 6.3.2). Empty = every supported release line."
+        required: false
+        default: ""
+      force:
+        description: "Rebuild even if the version is already published"
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.version }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: activemq
+  PLATFORMS: linux/amd64,linux/arm64
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.v.outputs.matrix }}
+      any: ${{ steps.v.outputs.any }}
+    steps:
+      - id: v
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          FORCE: ${{ inputs.force }}
+          EVENT: ${{ github.event_name }}
+          GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/activemq
+        run: |
+          set -euo pipefail
+          # Apache's download server lists exactly the supported releases (one per line,
+          # e.g. 5.19.x, 6.2.x, 6.3.x). A git tag can exist before the release vote has
+          # passed, so tags are not used.
+          supported=$(curl -fsSL https://downloads.apache.org/activemq/ \
+            | grep -oE 'href="[0-9]+\.[0-9]+\.[0-9]+/"' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sort -V)
+          newest=$(echo "$supported" | tail -1)
+          versions=${INPUT_VERSION:-$supported}
+          echo "Supported: ${supported//$'\n'/ } | building: ${versions//$'\n'/ }"
+
+          entries=()
+          for version in $versions; do
+            minor=$(echo "$version" | cut -d. -f1-2)
+            major=$(echo "$version" | cut -d. -f1)
+            # <major>.<minor>, <major> and latest only move to the newest supported release.
+            newest_minor=$(echo "$supported" | grep "^$minor\." | tail -1 || true)
+            newest_major=$(echo "$supported" | grep "^$major\." | tail -1 || true)
+            # Same Java as Apache's own image for this release, but at least 17.
+            java=$(curl -fsSL "https://raw.githubusercontent.com/apache/activemq/activemq-$version/assembly/src/docker/Dockerfile" \
+              | grep -oE '(java_version=|eclipse-temurin:)[0-9]+' | grep -oE '[0-9]+$' | head -1 || true)
+            java=$(( ${java:-17} < 17 ? 17 : ${java:-17} ))
+
+            if [ "$EVENT" = "schedule" ] || { [ "$EVENT" = "workflow_dispatch" ] && [ "$FORCE" != "true" ]; }; then
+              if docker buildx imagetools inspect "${GHCR_IMAGE,,}:$version" >/dev/null 2>&1; then
+                echo "$version already published, skipping."
+                continue
+              fi
+            fi
+            entries+=("$(jq -nc --arg v "$version" --arg minor "$minor" --arg major "$major" --arg java "$java" \
+              --argjson tag_minor "$([ "$version" = "$newest_minor" ] && echo true || echo false)" \
+              --argjson tag_major "$([ "$version" = "$newest_major" ] && echo true || echo false)" \
+              --argjson latest "$([ "$version" = "$newest" ] && echo true || echo false)" \
+              '{version:$v, minor:$minor, major:$major, java:$java, tag_minor:$tag_minor, tag_major:$tag_major, latest:$latest}')")
+          done
+          matrix=$(printf '%s\n' "${entries[@]}" | jq -sc '{include: map(select(. != null))}')
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "any=$([ ${#entries[@]} -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "$matrix" | jq .
+
+  build:
+    needs: resolve
+    if: needs.resolve.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
+    permissions:
+      contents: read
+      packages: write   # push to GHCR
+      id-token: write   # keyless cosign signing
+    env:
+      VERSION: ${{ matrix.version }}
+      PUBLISH: ${{ github.event_name != 'pull_request' }}
+      DOCKERHUB_ENABLED: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+      QUAY_ENABLED: ${{ secrets.QUAY_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download and verify ActiveMQ ${{ env.VERSION }}
+        run: scripts/fetch-release.sh "$VERSION"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      # ---------- Smoke test (amd64) before anything is published ----------
+      - name: Build test image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: activemq:smoke
+          build-args: |
+            ACTIVEMQ_VERSION=${{ env.VERSION }}
+            JAVA_VERSION=${{ matrix.java }}
+          cache-from: type=gha,scope=${{ matrix.minor }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.minor }}
+
+      - name: Smoke test (auth, transports, metrics, JDBC failover)
+        run: scripts/smoke-test.sh activemq:smoke
+
+      # ---------- Publish ----------
+      - name: Log in to Docker Hub
+        if: env.PUBLISH == 'true' && env.DOCKERHUB_ENABLED == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GHCR
+        if: env.PUBLISH == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Log in to Quay.io
+        if: env.PUBLISH == 'true' && env.QUAY_ENABLED == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ${{ vars.QUAY_USERNAME }}
+          password: ${{ secrets.QUAY_TOKEN }}
+
+      - name: Image names
+        id: images
+        env:
+          OWNER: ${{ github.repository_owner }}
+          DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE || github.repository_owner }}
+          QUAY_NAMESPACE: ${{ vars.QUAY_NAMESPACE || github.repository_owner }}
+        run: |
+          {
+            echo "list<<EOF"
+            echo "ghcr.io/${OWNER,,}/$IMAGE_NAME"
+            [ "$DOCKERHUB_ENABLED" = "true" ] && echo "docker.io/${DOCKERHUB_NAMESPACE,,}/$IMAGE_NAME"
+            [ "$QUAY_ENABLED" = "true" ] && echo "quay.io/${QUAY_NAMESPACE,,}/$IMAGE_NAME"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.images.outputs.list }}
+          tags: |
+            type=raw,value=${{ env.VERSION }}
+            type=raw,value=${{ matrix.minor }},enable=${{ matrix.tag_minor }}
+            type=raw,value=${{ matrix.major }},enable=${{ matrix.tag_major }}
+            type=raw,value=latest,enable=${{ matrix.latest }}
+          flavor: latest=false
+          labels: |
+            org.opencontainers.image.version=${{ env.VERSION }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+      - name: Build and push (multi-arch)
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ env.PLATFORMS }}
+          push: ${{ env.PUBLISH == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            ACTIVEMQ_VERSION=${{ env.VERSION }}
+            JAVA_VERSION=${{ matrix.java }}
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha,scope=${{ matrix.minor }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.minor }}
+
+      - name: Install cosign
+        if: env.PUBLISH == 'true'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign images (keyless)
+        if: env.PUBLISH == 'true'
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+          IMAGES: ${{ steps.images.outputs.list }}
+        run: |
+          for img in $IMAGES; do
+            cosign sign --yes "${img}@${DIGEST}"
+          done
+
+      - name: Sync Docker Hub description
+        if: env.PUBLISH == 'true' && env.DOCKERHUB_ENABLED == 'true' && github.ref == 'refs/heads/main' && matrix.latest
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ vars.DOCKERHUB_NAMESPACE || github.repository_owner }}/${{ env.IMAGE_NAME }}
+          short-description: "Apache ActiveMQ Classic 5.19, 6.2, 6.3: secure by default, non-root, multi-arch, signed, metrics, JDBC HA"
+          readme-filepath: ./README.md

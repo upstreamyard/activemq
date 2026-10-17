@@ -1,0 +1,26 @@
+# Prometheus JMX exporter rules for Apache ActiveMQ Classic, by upstreamyard.
+# Used when ACTIVEMQ_METRICS_ENABLED=true; metrics are served on :9404/metrics.
+# JVM metrics (memory, GC, threads) are added by the exporter automatically.
+lowercaseOutputName: true
+lowercaseOutputLabelNames: true
+includeObjectNames:
+  - "org.apache.activemq:type=Broker,brokerName=*"
+  - "org.apache.activemq:type=Broker,brokerName=*,destinationType=*,destinationName=*"
+excludeObjectNames:
+  # Advisory topics would add one series per destination and per client.
+  - "org.apache.activemq:type=Broker,brokerName=*,destinationType=Topic,destinationName=ActiveMQ.Advisory.*"
+rules:
+  # Per queue and topic
+  - pattern: 'org.apache.activemq<type=Broker, brokerName=([^,]+), destinationType=([^,]+), destinationName=([^>]+)><>(QueueSize|EnqueueCount|DequeueCount|DispatchCount|ExpiredCount|InFlightCount|ForwardCount|ConsumerCount|ProducerCount|MemoryPercentUsage|MemoryUsageByteCount|AverageEnqueueTime|MaxEnqueueTime|AverageMessageSize|BlockedSends|TotalBlockedTime)'
+    name: activemq_destination_$4
+    type: GAUGE
+    labels:
+      broker: "$1"
+      destination_type: "$2"
+      destination: "$3"
+  # Broker-wide
+  - pattern: 'org.apache.activemq<type=Broker, brokerName=([^,>]+)><>(TotalEnqueueCount|TotalDequeueCount|TotalMessageCount|TotalConsumerCount|TotalProducerCount|TotalConnectionsCount|CurrentConnectionsCount|MemoryPercentUsage|MemoryLimit|StorePercentUsage|StoreLimit|TempPercentUsage|TempLimit|AverageMessageSize|Slave)'
+    name: activemq_broker_$2
+    type: GAUGE
+    labels:
+      broker: "$1"
