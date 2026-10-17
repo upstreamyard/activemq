@@ -11,7 +11,7 @@ ARG JAVA_VERSION=25
 # Prepare: release files, extras, config defaults
 # -----------------------------
 # Only handles platform-independent files (jars, scripts, XML), so it runs natively.
-FROM --platform=$BUILDPLATFORM alpine:3.22 AS prepare
+FROM --platform=$BUILDPLATFORM alpine:3.24 AS prepare
 
 # Prometheus JMX exporter (Apache-2.0), from its GitHub release.
 ARG JMX_EXPORTER_VERSION=1.7.0
