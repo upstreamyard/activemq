@@ -34,6 +34,10 @@ wait_healthy() {
 cli() { docker run --rm --network "$NET" "$IMAGE" activemq "$@" 2>&1 || true; }
 # expect_cli PATTERN ARGS...: runs the CLI and checks its output for PATTERN.
 expect_cli() { local want=$1 out; shift; out=$(cli "$@"); grep -q -- "$want" <<< "$out"; }
+# log_has CONTAINER PATTERN: checks the container's log for PATTERN. The log is read in
+# full first: piping "docker logs" into "grep -q" fails at random under pipefail, because
+# grep exits on the first match and docker logs dies of SIGPIPE.
+log_has() { local out; out=$(docker logs "$1" 2>&1); grep -q -- "$2" <<< "$out"; }
 # HTTP from inside a broker container (the image has no curl): prints the status code.
 http() { # container port path [user:password]
   local auth=""
@@ -51,7 +55,7 @@ docker run -d --name smoke-amq --network "$NET" \
   "$IMAGE" >/dev/null
 wait_healthy smoke-amq
 for t in openwire amqp stomp mqtt ws; do
-  docker logs smoke-amq 2>&1 | grep -q "Connector $t started" || fail "transport $t not started"
+  log_has smoke-amq "Connector $t started" || fail "transport $t not started"
 done
 echo "All five transports started"
 
@@ -81,7 +85,7 @@ grep -q '^jvm_memory_used_bytes' <<< "$metrics" || fail "JVM metrics missing"
 echo "Prometheus metrics ok"
 
 docker stop smoke-amq >/dev/null
-docker logs smoke-amq 2>&1 | grep -q "is shutdown" || fail "broker did not shut down cleanly on SIGTERM"
+log_has smoke-amq "is shutdown" || fail "broker did not shut down cleanly on SIGTERM"
 echo "Clean shutdown on SIGTERM"
 
 echo "== 2. JDBC master/slave on PostgreSQL"
@@ -95,9 +99,9 @@ for b in smoke-b1 smoke-b2; do
   [ "$b" = smoke-b1 ] && wait_healthy smoke-b1
 done
 for _ in $(seq 1 30); do
-  docker logs smoke-b2 2>&1 | grep -q "attempting to acquire exclusive lease" && break; sleep 2
+  log_has smoke-b2 "attempting to acquire exclusive lease" && break; sleep 2
 done
-docker logs smoke-b2 2>&1 | grep -q "attempting to acquire exclusive lease" || fail "standby is not waiting for the lease"
+log_has smoke-b2 "attempting to acquire exclusive lease" || fail "standby is not waiting for the lease"
 [ "$(docker exec smoke-b1 broker-state)" = active ] || fail "broker-state of smoke-b1 is not active"
 [ "$(docker exec smoke-b2 broker-state)" = standby ] || fail "broker-state of smoke-b2 is not standby"
 echo "smoke-b1 active, smoke-b2 waiting for the lease (broker-state: active / standby)"
